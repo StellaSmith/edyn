@@ -17,10 +17,6 @@ struct contact_point {
     vector3 normal; // Normal in world space.
     vector3 local_normal; // Normal in object space.
     contact_normal_attachment normal_attachment; // To which body the normal is attached.
-    scalar friction; // Combined friction coefficient.
-    scalar spin_friction; // Combined spin friction coefficient.
-    scalar roll_friction; // Combined rolling friction coefficient.
-    scalar restitution; // Combined coefficient of restitution.
     uint32_t lifetime {0}; // Incremented in each simulation step where the contact is persisted.
     scalar distance; // Signed distance along normal.
 };

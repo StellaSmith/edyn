@@ -27,8 +27,7 @@ namespace edyn {
  * be correct. Add them up to get the full normal and friction impulses.
  */
 struct contact_constraint : public constraint_base {
-    scalar stiffness {large_scalar};
-    scalar damping {large_scalar};
+
 };
 
 struct constraint_row;

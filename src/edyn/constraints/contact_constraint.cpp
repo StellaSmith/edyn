@@ -10,6 +10,7 @@
 #include "edyn/comp/mass.hpp"
 #include "edyn/comp/inertia.hpp"
 #include "edyn/comp/center_of_mass.hpp"
+#include "edyn/comp/material.hpp"
 #include "edyn/collision/contact_point.hpp"
 #include "edyn/dynamics/row_cache.hpp"
 #include "edyn/math/geom.hpp"
@@ -71,6 +72,7 @@ void prepare_constraints<contact_constraint>(entt::registry &registry, row_cache
     auto body_view = registry.view<position, orientation, linvel, angvel, mass_inv, inertia_world_inv, delta_linvel, delta_angvel>();
     auto con_view = registry.view<contact_constraint>();
     auto cp_view = registry.view<contact_point>();
+    auto material_view = registry.view<material>();
     auto imp_view = registry.view<constraint_impulse>();
     auto com_view = registry.view<center_of_mass>();
     auto &settings = registry.ctx<edyn::settings>();
@@ -91,6 +93,7 @@ void prepare_constraints<contact_constraint>(entt::registry &registry, row_cache
             body_view.get<position, orientation, linvel, angvel, mass_inv, inertia_world_inv, delta_linvel, delta_angvel>(con.body[1]);
         auto &imp = imp_view.get(entity);
         auto &cp = cp_view.get(entity);
+        auto &material = material_view.get(entity);
 
         EDYN_ASSERT(con.body[0] == cp.body[0]);
         EDYN_ASSERT(con.body[1] == cp.body[1]);
@@ -129,22 +132,22 @@ void prepare_constraints<contact_constraint>(entt::registry &registry, row_cache
         // Do not use the traditional restitution path if the restitution solver
         // is being used.
         if (settings.num_restitution_iterations == 0) {
-            normal_options.restitution = cp.restitution;
+            normal_options.restitution = material.restitution;
         }
 
         if (cp.distance < 0) {
-            if (con.stiffness < large_scalar) {
+            if (material.stiffness < large_scalar) {
                 auto vA = linvelA + cross(angvelA, rA);
                 auto vB = linvelB + cross(angvelB, rB);
                 auto relvel = vA - vB;
                 auto normal_relvel = dot(relvel, normal);
-                auto spring_force = cp.distance * con.stiffness;
-                auto damper_force = normal_relvel * con.damping;
+                auto spring_force = cp.distance * material.stiffness;
+                auto damper_force = normal_relvel * material.damping;
                 normal_row.upper_limit = std::abs(spring_force + damper_force) * dt;
             } else {
                 normal_row.upper_limit = large_scalar;
             }
-        } else if (con.stiffness >= large_scalar) {
+        } else if (material.stiffness >= large_scalar) {
             // It is not penetrating thus apply an impulse that will prevent
             // penetration after the following physics update.
             normal_options.error = cp.distance / dt;
@@ -156,7 +159,7 @@ void prepare_constraints<contact_constraint>(entt::registry &registry, row_cache
 
         // Create special friction rows.
         auto &friction_rows = ctx.friction_rows.emplace_back();
-        friction_rows.friction_coefficient = cp.friction;
+        friction_rows.friction_coefficient = material.friction;
 
         vector3 tangents[2];
         plane_space(normal, tangents[0], tangents[1]);
@@ -175,9 +178,9 @@ void prepare_constraints<contact_constraint>(entt::registry &registry, row_cache
             dwB += inv_IB * friction_row.J[3] * friction_row.impulse;
         }
 
-        if (cp.roll_friction > 0) {
+        if (material.roll_friction > 0) {
             auto &roll_rows = ctx.roll_friction_rows.emplace_back();
-            roll_rows.friction_coefficient = cp.roll_friction;
+            roll_rows.friction_coefficient = material.roll_friction;
 
             for (auto i = 0; i < 2; ++i) {
                 auto &roll_row = roll_rows.row[i];
@@ -194,7 +197,7 @@ void prepare_constraints<contact_constraint>(entt::registry &registry, row_cache
 
         auto num_rows = size_t{1};
 
-        if (cp.spin_friction > 0) {
+        if (material.spin_friction > 0) {
             auto &spin_row = cache.rows.emplace_back();
             spin_row.J = {vector3_zero, normal, vector3_zero, -normal};
             spin_row.inv_mA = inv_mA; spin_row.inv_IA = inv_IA;
@@ -219,7 +222,7 @@ void iterate_constraints<contact_constraint>(entt::registry &registry, row_cache
     auto con_idx = size_t(0);
     auto roll_idx = size_t(0);
     auto con_view = registry.view<contact_constraint>();
-    auto cp_view = registry.view<contact_point>();
+    auto material_view = registry.view<material>();
 
     // Solve friction rows locally using a non-standard method where the impulse
     // is limited by the length of a 2D vector to assure a friction circle.
@@ -237,18 +240,18 @@ void iterate_constraints<contact_constraint>(entt::registry &registry, row_cache
         internal::solve_friction_row_pair(friction_row_pair, normal_row);
 
         auto num_rows = cache.con_num_rows[ctx.row_count_start_index + con_idx];
-        auto &cp = cp_view.get(entity);
+        auto &material = material_view.get(entity);
 
-        if (cp.roll_friction > 0) {
+        if (material.roll_friction > 0) {
             auto &roll_row_pair = ctx.roll_friction_rows[roll_idx];
             internal::solve_friction_row_pair(roll_row_pair, normal_row);
             ++roll_idx;
         }
 
-        if (cp.spin_friction > 0) {
+        if (material.spin_friction > 0) {
             EDYN_ASSERT(num_rows > 1);
             auto &spin_row = cache.rows[row_idx + 1];
-            auto max_impulse_len = cp.spin_friction * normal_row.impulse;
+            auto max_impulse_len = material.spin_friction * normal_row.impulse;
             spin_row.lower_limit = -max_impulse_len;
             spin_row.upper_limit = max_impulse_len;
         }

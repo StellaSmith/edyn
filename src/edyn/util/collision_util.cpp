@@ -49,38 +49,33 @@ void merge_point(const collision_result::collision_point &rp, contact_point &cp)
 void create_contact_constraint(entt::registry &registry,
                                entt::entity contact_entity,
                                contact_point &cp) {
+    // Note: emplace before get... or else we're gonna have dangling references.
+    auto &contact_mat = registry.emplace<material>(contact_entity);
     auto &materialA = registry.get<material>(cp.body[0]);
     auto &materialB = registry.get<material>(cp.body[1]);
-
     auto &material_table = registry.ctx<material_mix_table>();
-    auto stiffness = large_scalar;
-    auto damping = large_scalar;
 
-    if (auto *material = material_table.try_get({materialA.id, materialB.id})) {
-        cp.restitution = material->restitution;
-        cp.friction = material->friction;
-        cp.roll_friction = material->roll_friction;
-        cp.spin_friction = material->spin_friction;
-        stiffness = material->stiffness;
-        damping = material->damping;
+    if (auto *table_mat = material_table.try_get({materialA.id, materialB.id})) {
+        contact_mat = {*table_mat};
     } else {
-        cp.restitution = material_mix_restitution(materialA.restitution, materialB.restitution);
-        cp.friction = material_mix_friction(materialA.friction, materialB.friction);
-        cp.roll_friction = material_mix_roll_friction(materialA.roll_friction, materialB.roll_friction);
-        cp.spin_friction = material_mix_spin_friction(materialA.spin_friction, materialB.spin_friction);
+        contact_mat.restitution   = material_mix_restitution(materialA.restitution, materialB.restitution);
+        contact_mat.friction      = material_mix_friction(materialA.friction, materialB.friction);
+        contact_mat.roll_friction = material_mix_roll_friction(materialA.roll_friction, materialB.roll_friction);
+        contact_mat.spin_friction = material_mix_spin_friction(materialA.spin_friction, materialB.spin_friction);
 
         if (materialA.stiffness < large_scalar || materialB.stiffness < large_scalar) {
-            stiffness = material_mix_stiffness(materialA.stiffness, materialB.stiffness);
-            damping = material_mix_damping(materialA.damping, materialB.damping);
+            contact_mat.stiffness = material_mix_stiffness(materialA.stiffness, materialB.stiffness);
+            contact_mat.damping   = material_mix_damping(materialA.damping, materialB.damping);
         }
     }
+
+    auto &dirty = registry.get_or_emplace<edyn::dirty>(contact_entity);
+    dirty.created<material>();
 
     // Contact constraints are never graph edges since they're effectively
     // a child of a manifold and the manifold is the graph edge.
     constexpr auto is_graph_edge = false;
-    auto &contact = make_constraint<contact_constraint>(contact_entity, registry, cp.body[0], cp.body[1], is_graph_edge);
-    contact.stiffness = stiffness;
-    contact.damping = damping;
+    make_constraint<contact_constraint>(contact_entity, registry, cp.body[0], cp.body[1], is_graph_edge);
 }
 
 size_t find_nearest_contact(const contact_point &cp,
@@ -159,8 +154,6 @@ entt::entity create_contact_point(entt::registry& registry,
         rp.normal, // world space normal
         local_normal, // object space normal
         rp.normal_attachment, // to which rigid body the local normal is attached
-        scalar{}, // friction
-        scalar{}, // restitution
         uint32_t{0}, // lifetime
         rp.distance // distance
     );

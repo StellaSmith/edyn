@@ -14,6 +14,7 @@
 #include "edyn/comp/center_of_mass.hpp"
 #include "edyn/comp/mass.hpp"
 #include "edyn/comp/inertia.hpp"
+#include "edyn/comp/material.hpp"
 #include "edyn/math/geom.hpp"
 #include "edyn/dynamics/solver.hpp"
 #include "edyn/parallel/entity_graph.hpp"
@@ -72,6 +73,7 @@ scalar get_manifold_min_relvel(const contact_manifold &manifold, const BodyView 
 bool solve_restitution_iteration(entt::registry &registry, scalar dt, unsigned individual_iterations) {
     auto body_view = registry.view<position, orientation, linvel, angvel, mass_inv, inertia_world_inv, delta_linvel, delta_angvel>();
     auto cp_view = registry.view<contact_point>();
+    auto material_view = registry.view<material>();
     auto imp_view = registry.view<constraint_impulse>();
     auto com_view = registry.view<center_of_mass>();
     auto restitution_view = registry.view<contact_manifold_with_restitution>();
@@ -155,6 +157,7 @@ bool solve_restitution_iteration(entt::registry &registry, scalar dt, unsigned i
             for (size_t pt_idx = 0; pt_idx < num_points; ++pt_idx) {
                 auto point_entity = manifold.point[pt_idx];
                 auto &cp = cp_view.get(point_entity);
+                auto &material = material_view.get(point_entity);
 
                 auto normal = cp.normal;
                 auto pivotA = to_world_space(cp.pivotA, originA, ornA);
@@ -172,12 +175,12 @@ bool solve_restitution_iteration(entt::registry &registry, scalar dt, unsigned i
                 normal_row.upper_limit = large_scalar;
 
                 auto normal_options = constraint_row_options{};
-                normal_options.restitution = cp.restitution;
+                normal_options.restitution = material.restitution;
 
                 prepare_row(normal_row, normal_options, linvelA, angvelA, linvelB, angvelB);
 
                 auto &friction_row_pair = friction_row_pairs.emplace_back();
-                friction_row_pair.friction_coefficient = cp.friction;
+                friction_row_pair.friction_coefficient = material.friction;
 
                 vector3 tangents[2];
                 plane_space(normal, tangents[0], tangents[1]);
